@@ -44,20 +44,32 @@ print("Dependencies installed.")
 # CELL 3 — Symlink dataset (Kaggle dataset phải được add vào notebook)
 # ─────────────────────────────────────────────────────────────────────
 # Kaggle dataset: mlg-ulb/creditcardfraud
-# Sau khi add dataset vào notebook, file sẽ có ở:
-#   /kaggle/input/creditcardfraud/creditcard.csv
+import os
 
-KAGGLE_DATA = "/kaggle/input/creditcardfraud/creditcard.csv"
-LOCAL_DATA  = "data/raw/creditcard.csv"
+REPO_DIR = "/kaggle/working/Fraud-Detection"
+LOCAL_DATA = f"{REPO_DIR}/data/raw/creditcard.csv"
 
-os.makedirs("data/raw", exist_ok=True)
-if os.path.exists(KAGGLE_DATA) and not os.path.exists(LOCAL_DATA):
-    os.symlink(KAGGLE_DATA, LOCAL_DATA)
-    print(f"Symlinked dataset: {KAGGLE_DATA} → {LOCAL_DATA}")
-elif os.path.exists(LOCAL_DATA):
-    print(f"Dataset already exists at {LOCAL_DATA}")
-else:
-    print("⚠️ Dataset not found! Add 'Credit Card Fraud Detection' dataset to this notebook.")
+os.makedirs(f"{REPO_DIR}/data/raw", exist_ok=True)
+
+# Tự động tìm đường dẫn file dataset
+kaggle_data_path = None
+for root, dirs, files in os.walk("/kaggle/input"):
+    if "creditcard.csv" in files:
+        kaggle_data_path = os.path.join(root, "creditcard.csv")
+        break
+
+if not kaggle_data_path:
+    raise FileNotFoundError("⚠️ Dataset not found! Add 'Credit Card Fraud Detection' dataset to this notebook.")
+
+print(f"Found dataset at: {kaggle_data_path}")
+
+# Xóa symlink cũ nếu có (tránh broken link)
+if os.path.lexists(LOCAL_DATA):
+    os.remove(LOCAL_DATA)
+
+os.symlink(kaggle_data_path, LOCAL_DATA)
+print(f"✅ Linked: {LOCAL_DATA}")
+print(f"   Accessible: {os.path.exists(LOCAL_DATA)}")
 
 # ─────────────────────────────────────────────────────────────────────
 # CELL 4 — (Optional) Data Profiling
