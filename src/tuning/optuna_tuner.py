@@ -100,8 +100,8 @@ def objective(trial, X, y, model_name):
         elif model_name == "RandomForestClassifier":
             param = {
                 "n_jobs": -1,
-                "n_estimators": trial.suggest_int("n_estimators", 100, 500),
-                "max_depth": trial.suggest_int("max_depth", 5, 25),
+                "n_estimators": trial.suggest_int("n_estimators", 50, 200),
+                "max_depth": trial.suggest_int("max_depth", 5, 20),
                 "min_samples_split": trial.suggest_int("min_samples_split", 2, 20),
                 "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 10),
                 "class_weight": trial.suggest_categorical(
@@ -136,17 +136,14 @@ def objective(trial, X, y, model_name):
             y_prob = model.predict_proba(X_val)[:, 1]
 
         elif model_name == "LogisticRegression":
-            # l1_ratio: 0.0 = L2, 1.0 = L1 (replaces deprecated penalty=)
-            l1_ratio = trial.suggest_float("l1_ratio", 0.0, 1.0)
             param = {
-                "C": trial.suggest_float("C", 1e-4, 100.0, log=True),
-                "l1_ratio": l1_ratio,
-                "solver": "saga",   # saga supports full elastic-net / l1 / l2
-                "max_iter": 5000,   # saga converges slowly on 284k rows
-                "tol": 1e-2,
+                "C": trial.suggest_float("C", 1e-4, 10.0, log=True),
+                "solver": "lbfgs",
+                "max_iter": 500,
                 "class_weight": trial.suggest_categorical(
                     "class_weight", ["balanced", None],
                 ),
+                "n_jobs": -1,
             }
             model = LogisticRegression(**param, random_state=42)
             model.fit(X_train, y_train)
