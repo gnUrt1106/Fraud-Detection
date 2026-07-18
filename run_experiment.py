@@ -32,6 +32,7 @@ import random
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -106,9 +107,15 @@ def tune_ml_model(
     n_trials: int,
     patience: int,
     seed: int,
+    timeout: Optional[int] = None,
 ) -> dict:
     """
     Chạy Optuna tune cho 1 ML model trên dữ liệu train của fold hiện tại.
+
+    Dừng sớm theo 3 điều kiện (whichever comes first):
+    - n_trials đạt giới hạn
+    - EarlyStoppingCallback: 'patience' trials liên tiếp không cải thiện
+    - timeout: số giây tối đa cho cả study (None = không giới hạn)
 
     Returns:
         best_params (dict) để truyền vào get_model().
@@ -121,6 +128,7 @@ def tune_ml_model(
     study.optimize(
         lambda trial: ml_optuna_objective(trial, X_train, y_train, optuna_name),
         n_trials=n_trials,
+        timeout=timeout,      # dừng sau X giây bất kể còn trial nào
         n_jobs=1,
         callbacks=callbacks,
     )
@@ -129,16 +137,13 @@ def tune_ml_model(
     params = dict(best.params)
 
     # ── Fix LR solver ─────────────────────────────────────────────────
-    # optuna_tuner dùng solver='saga' trong trial, nhưng get_model() có thể
-    # override với default lbfgs. Đảm bảo saga được giữ nguyên cho LR.
     if model_name == "LR":
         params.setdefault("solver", "saga")
         params.setdefault("max_iter", 5000)
 
-
     logger.info(
-        "  [Optuna-ML] %s best PR-AUC=%.4f params=%s",
-        model_name, best.value, params,
+        "  [Optuna-ML] %s | %d trials run | best PR-AUC=%.4f | params=%s",
+        model_name, len(study.trials), best.value, params,
     )
     return params
 
@@ -153,9 +158,19 @@ def tune_ann_model(
     n_trials: int,
     input_dim: int,
     seed: int,
+    patience: int = 5,
+    timeout: Optional[int] = None,
 ) -> dict:
     """
     Chạy Optuna tune cho ANN trên train/val của fold hiện tại.
+
+    Dừng sớm theo 3 điều kiện:
+    - n_trials đạt giới hạn
+    - EarlyStoppingCallback: 'patience' trials liên tiếp không cải thiện
+    - timeout: số giây tối đa cho cả study
+
+    Ngoài ra dùng MedianPruner để cắt bỏ từng trial ANN ngay trong quá
+    trình training nếu val PR-AUC tệ hơn median các trial đã hoàn thành.
 
     Returns:
         best_params (dict) để khởi tạo FraudANN.
@@ -164,7 +179,21 @@ def tune_ann_model(
 
     use_pos_weight = (condition == "Class-weighting")
 
-    study = optuna.create_study(direction="maximize")
+    # MedianPruner: sau n_startup_trials đầu tiên (warmup, không prune),
+    # cắt trial nếu val PR-AUC ở epoch hiện tại thấp hơn median
+    # của các trial đã hoàn thành ở cùng epoch.
+    pruner = optuna.pruners.MedianPruner(
+        n_startup_trials=5,   # 5 trial đầu không prune (cần warm-up)
+        n_warmup_steps=5,     # 5 epoch đầu mỗi trial không prune
+        interval_steps=3,     # kiểm tra mỗi 3 epoch
+    )
+
+    study = optuna.create_study(
+        direction="maximize",
+        pruner=pruner,
+    )
+    callbacks = [EarlyStoppingCallback(patience=patience)]
+
     study.optimize(
         lambda trial: optuna_objective_ann(
             trial,
@@ -175,13 +204,16 @@ def tune_ann_model(
             seed=seed,
         ),
         n_trials=n_trials,
+        timeout=timeout,
         n_jobs=1,
+        callbacks=callbacks,
     )
 
     best = study.best_trial
+    n_pruned = sum(1 for t in study.trials if t.state == optuna.trial.TrialState.PRUNED)
     logger.info(
-        "  [Optuna-ANN] best PR-AUC=%.4f params=%s",
-        best.value, best.params,
+        "  [Optuna-ANN] %d trials (%d pruned) | best PR-AUC=%.4f | params=%s",
+        len(study.trials), n_pruned, best.value, best.params,
     )
     return best.params
 
@@ -200,6 +232,7 @@ def run_ml_fold(
     n_trials: int,
     patience: int,
     seed: int,
+    timeout: Optional[int] = None,
     run_shap: bool = True,
 ) -> dict:
     """
@@ -216,7 +249,7 @@ def run_ml_fold(
     # 2. Optuna tune trên dữ liệu đã balance
     best_params = tune_ml_model(
         model_name, X_tr_bal, y_tr_bal,
-        n_trials=n_trials, patience=patience, seed=seed,
+        n_trials=n_trials, patience=patience, seed=seed, timeout=timeout,
     )
 
     # 3. Train final model với best params
@@ -264,7 +297,9 @@ def run_ann_fold(
     y_val: np.ndarray,
     feature_names: list[str],
     n_trials: int,
+    patience: int,
     seed: int,
+    timeout: Optional[int] = None,
     run_shap: bool = True,
 ) -> dict:
     """
@@ -286,8 +321,10 @@ def run_ann_fold(
         X_tr_bal, y_tr_bal, X_val, y_val,
         condition=condition,
         n_trials=n_trials,
+        patience=patience,
         input_dim=input_dim,
         seed=seed,
+        timeout=timeout,
     )
 
     # 3. Rebuild model với best params và train lại
@@ -354,6 +391,8 @@ def main(
     n_folds: int,
     n_trials: int,
     patience: int,
+    ann_patience: int,
+    timeout: Optional[int],
     run_shap: bool,
     seed: int,
     run_ann: bool,
@@ -428,6 +467,7 @@ def main(
                     n_trials=n_trials,
                     patience=patience,
                     seed=seed,
+                    timeout=timeout,
                     run_shap=run_shap,
                 )
                 fold_records.append(metrics)
@@ -444,7 +484,9 @@ def main(
                     X_val=X_val, y_val=y_val,
                     feature_names=feature_names,
                     n_trials=n_trials,
+                    patience=ann_patience,
                     seed=seed,
+                    timeout=timeout,
                     run_shap=run_shap,
                 )
                 fold_records.append(metrics)
@@ -482,20 +524,24 @@ def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fraud Detection: Full Experiment Pipeline (ML + DL)")
-    parser.add_argument("--models",     nargs="+", default=MODEL_NAMES,
+    parser.add_argument("--models",       nargs="+", default=MODEL_NAMES,
                         help="ML models to run (default: all)")
-    parser.add_argument("--conditions", nargs="+", default=list(CONDITIONS.keys()),
+    parser.add_argument("--conditions",   nargs="+", default=list(CONDITIONS.keys()),
                         help="Imbalance conditions")
-    parser.add_argument("--folds",      type=int, default=5,
+    parser.add_argument("--folds",        type=int, default=5,
                         help="Number of CV folds")
-    parser.add_argument("--trials",     type=int, default=30,
-                        help="Optuna trials per model per fold")
-    parser.add_argument("--patience",   type=int, default=10,
-                        help="Optuna early stopping patience")
-    parser.add_argument("--seed",       type=int, default=42)
-    parser.add_argument("--no-shap",    action="store_true",
+    parser.add_argument("--trials",       type=int, default=20,
+                        help="Max Optuna trials per model per fold (default: 20)")
+    parser.add_argument("--patience",     type=int, default=7,
+                        help="ML Optuna early-stop patience — stop after N trials no improve (default: 7)")
+    parser.add_argument("--ann-patience", type=int, default=5,
+                        help="ANN Optuna early-stop patience (default: 5, lower because pruner helps)")
+    parser.add_argument("--timeout",      type=int, default=None,
+                        help="Max seconds per Optuna study (e.g. 300 = 5 min). None = unlimited.")
+    parser.add_argument("--seed",         type=int, default=42)
+    parser.add_argument("--no-shap",      action="store_true",
                         help="Skip SHAP computation (faster)")
-    parser.add_argument("--no-ann",     action="store_true",
+    parser.add_argument("--no-ann",       action="store_true",
                         help="Skip ANN branch (ML only)")
     args = parser.parse_args()
 
@@ -505,6 +551,8 @@ if __name__ == "__main__":
         n_folds=args.folds,
         n_trials=args.trials,
         patience=args.patience,
+        ann_patience=args.ann_patience,
+        timeout=args.timeout,
         run_shap=not args.no_shap,
         seed=args.seed,
         run_ann=not args.no_ann,

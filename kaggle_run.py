@@ -94,38 +94,45 @@ if torch.cuda.is_available():
 # print("Sanity check passed!")
 
 # ─────────────────────────────────────────────────────────────────────
-# CELL 7 — FULL EXPERIMENT RUN (ML only, no ANN)
-# Chạy session GPU đầu tiên — ML × 3 conditions × 5 folds × 30 trials
-# Ước tính: ~2-3 giờ trên P100
+# CELL 7 — FULL EXPERIMENT RUN (ML + ANN)
+# Kaggle P100/T4 GPU — ước tính tổng ~2-3 giờ với settings này
+#
+# Cơ chế dừng sớm Optuna (whichever comes first):
+#   --trials 20      : tối đa 20 trials mỗi model mỗi fold
+#   --patience 7     : dừng ML tune nếu 7 trial liên tiếp không cải thiện
+#   --ann-patience 5 : dừng ANN tune nếu 5 trial liên tiếp không cải thiện
+#   --timeout 300    : hard cap 5 phút mỗi Optuna study (backup)
+#   ANN còn có MedianPruner: cắt sớm từng trial tệ hơn median các trial khác
 # ─────────────────────────────────────────────────────────────────────
 import time
 t0 = time.time()
 
 subprocess.run([
     sys.executable, "run_experiment.py",
-    "--no-ann",        # bỏ cờ này nếu muốn chạy cả ANN
-    "--folds",   "5",
-    "--trials",  "30",
-    "--patience", "10",
-    "--seed",    "42",
-    # "--no-shap",   # bỏ comment nếu muốn bỏ qua SHAP để chạy nhanh hơn
+    "--folds",        "5",
+    "--trials",       "20",     # max 20 trials per model per fold
+    "--patience",     "7",      # ML early-stop: 7 trials no improve → stop
+    "--ann-patience", "5",      # ANN early-stop: 5 trials no improve → stop
+    "--timeout",      "300",    # hard cap: 5 phút/study (backup safety net)
+    "--seed",         "42",
+    # "--no-ann",              # bỏ comment để chỉ chạy ML
+    # "--no-shap",             # bỏ comment để bỏ qua SHAP và chạy nhanh hơn
 ], check=True)
 
 elapsed = time.time() - t0
-print(f"\n✅ ML experiment done in {elapsed/3600:.2f} hours")
+print(f"\n✅ Experiment done in {elapsed/3600:.2f} hours")
 
 # ─────────────────────────────────────────────────────────────────────
-# CELL 8 — ANN EXPERIMENT (chạy session riêng hoặc tiếp session trên)
-# Nếu quota GPU còn, uncomment và chạy tiếp — chỉ chạy ANN branch
-# Ước tính: ~1-1.5 giờ trên P100
+# CELL 8 — Nếu muốn chạy tách biệt: chỉ ML, không ANN
 # ─────────────────────────────────────────────────────────────────────
 # subprocess.run([
 #     sys.executable, "run_experiment.py",
-#     "--models",      # bỏ cờ --models để không chạy ML lại
-#     "--no-ml",       # TODO: thêm flag này vào run_experiment.py nếu cần
-#     "--folds",   "5",
-#     "--trials",  "30",
-#     "--seed",    "42",
+#     "--no-ann",
+#     "--folds",    "5",
+#     "--trials",   "20",
+#     "--patience", "7",
+#     "--timeout",  "300",
+#     "--seed",     "42",
 # ], check=True)
 
 # ─────────────────────────────────────────────────────────────────────

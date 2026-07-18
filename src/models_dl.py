@@ -18,6 +18,7 @@ import time
 from typing import Optional
 
 import numpy as np
+import optuna
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -121,6 +122,7 @@ def train_ann(
     patience: int = 10,
     pos_weight: Optional[float] = None,
     seed: int = 42,
+    trial=None,           # Optuna trial — nếu truyền vào, bật pruning per epoch
 ) -> dict:
     """
     Train ANN với EarlyStopping theo val PR-AUC.
@@ -137,6 +139,9 @@ def train_ann(
                        Truyền vào khi dùng class-weighting.
                        (= n_negative / n_positive, ví dụ ≈ 578 với dataset này)
         seed:          Seed cho DataLoader worker.
+        trial:         Optuna Trial — nếu không phải None, gọi trial.report() mỗi
+                       epoch và kiểm tra trial.should_prune() để MedianPruner cắt
+                       sớm những trial tệ hơn median.
 
     Returns:
         Dict với:
@@ -195,6 +200,16 @@ def train_ann(
 
         history.append((avg_loss, val_prauc))
 
+        # ── Optuna pruning ────────────────────────────────────
+        # Báo cáo intermediate value sau mỗi epoch cho MedianPruner.
+        # Pruner sẽ kiểm tra nếu val_prauc ở epoch này tệ hơn median
+        # các trial khác ở cùng epoch — nếu có, raise TrialPruned để dừng sớm.
+        if trial is not None:
+            trial.report(val_prauc, epoch)
+            if trial.should_prune():
+                logger.debug("Trial pruned at epoch %d (val_prauc=%.4f)", epoch, val_prauc)
+                raise optuna.exceptions.TrialPruned()
+
         if val_prauc > best_val_prauc:
             best_val_prauc = val_prauc
             best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
@@ -248,8 +263,11 @@ def optuna_objective_ann(
         learning_rate: 1e-4–1e-2 (log scale)
         batch_size:    {128, 256, 512}
 
+    Pruning: gọi trial.report(val_prauc, epoch) sau mỗi epoch —
+    MedianPruner sẽ TrialPruned nếu val_prauc thấp hơn median các trial khác.
+
     Args:
-        trial:         Optuna Trial object.
+        trial:          Optuna Trial object.
         use_pos_weight: Nếu True, tính pos_weight từ y_train để dùng class-weight.
 
     Returns:
@@ -288,5 +306,6 @@ def optuna_objective_ann(
         batch_size=batch_size,
         pos_weight=pos_weight,
         seed=seed,
+        trial=trial,    # truyền trial vào để bật pruning per-epoch
     )
     return result["best_val_prauc"]
