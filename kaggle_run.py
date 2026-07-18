@@ -45,6 +45,7 @@ print("Dependencies installed.")
 # ─────────────────────────────────────────────────────────────────────
 # Kaggle dataset: mlg-ulb/creditcardfraud
 import os
+import shutil
 
 REPO_DIR = "/kaggle/working/Fraud-Detection"
 LOCAL_DATA = f"{REPO_DIR}/data/raw/creditcard.csv"
@@ -63,12 +64,13 @@ if not kaggle_data_path:
 
 print(f"Found dataset at: {kaggle_data_path}")
 
-# Xóa symlink cũ nếu có (tránh broken link)
+# Xóa symlink/file cũ nếu có
 if os.path.lexists(LOCAL_DATA):
     os.remove(LOCAL_DATA)
 
-os.symlink(kaggle_data_path, LOCAL_DATA)
-print(f"✅ Linked: {LOCAL_DATA}")
+print("Copying dataset to local folder (avoiding symlink issues)...")
+shutil.copy2(kaggle_data_path, LOCAL_DATA)
+print(f"✅ Ready: {LOCAL_DATA}")
 print(f"   Accessible: {os.path.exists(LOCAL_DATA)}")
 
 # ─────────────────────────────────────────────────────────────────────
