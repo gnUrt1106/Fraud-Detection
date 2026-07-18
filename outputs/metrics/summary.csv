@@ -1,0 +1,2 @@
+model,condition,PR-AUC_mean,PR-AUC_std,ROC-AUC_mean,ROC-AUC_std,F1_mean,F1_std,Recall_mean,Recall_std,Precision_mean,Precision_std
+LR,Class-weighting,0.71211,0.05624,0.97929,0.00156,0.78164,0.00642,0.7561,0.023,0.8103,0.04018

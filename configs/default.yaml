@@ -1,21 +1,40 @@
 # Experiment Configuration
-# Explainable ML for Credit Card Fraud Detection under Data Imbalance
+# Fraud Detection: ML vs DL — SHAP Explainability Study
 
+# ── Global seed ───────────────────────────────────────────────────────
+# Dùng cho: numpy, random, sklearn, torch — set một lần ở run_experiment.py
+seed: 42
+
+# ── Data ──────────────────────────────────────────────────────────────
 data:
   data_path: "data/raw/creditcard.csv"
   target_column: "Class"
-  test_size: 0.2
-  random_state: 42
 
-# Scaling: RobustScaler on Amount & Time only (V1–V28 already PCA)
+# ── Preprocessing ────────────────────────────────────────────────────
+# RobustScaler fit trên train fold, transform train+val — không leakage
 preprocessing:
   scaler: "robust"
   scale_columns: ["Amount", "Time"]
 
+# ── Cross-validation ─────────────────────────────────────────────────
+# Cùng 1 bộ fold indices dùng cho cả ML và DL (bắt buộc để so sánh paired)
+cv:
+  n_splits: 5
+  shuffle: true
 
+# ── Imbalance conditions ─────────────────────────────────────────────
+conditions:
+  - Class-weighting
+  - SMOTE
+  - SMOTE-ENN
 
-# Model hyperparameters
-# These can be overridden by Optuna-tuned parameters
+# ── Optuna ───────────────────────────────────────────────────────────
+optuna:
+  n_trials: 30          # giảm xuống khi test nhanh
+  direction: maximize   # tối đa hoá PR-AUC
+
+# ── ML model hyperparameters ─────────────────────────────────────────
+# Các giá trị này là baseline; Optuna sẽ ghi đè trong quá trình tune.
 models:
   RF:
     n_estimators: 185
@@ -50,8 +69,28 @@ models:
     max_iter: 1000
     random_state: 42
 
-# Conditions (imbalance handling)
-conditions:
-  - Class-weighting
-  - SMOTE
-  - SMOTE-ENN
+# ── ANN (DL branch) ───────────────────────────────────────────────────
+ann:
+  # Optuna search space — giá trị này là default khi không tune
+  input_dim: 30
+  n_layers: 3
+  units: [64, 32, 16]
+  dropout_rates: [0.3, 0.2, 0.0]
+  learning_rate: 1e-3
+  batch_size: 256
+  max_epochs: 100
+  patience: 10           # EarlyStopping: số epoch không cải thiện val PR-AUC
+
+# ── SHAP ─────────────────────────────────────────────────────────────
+shap:
+  n_background: 100      # Số background samples cho DeepExplainer (ANN)
+  # Lưu SHAP values mỗi model/condition/fold để phân tích sau
+  save_values: true
+
+# ── Output paths ─────────────────────────────────────────────────────
+outputs:
+  profiling:   "outputs/profiling"
+  metrics:     "outputs/metrics"
+  shap_values: "outputs/shap_values"
+  models:      "outputs/models"
+  figures:     "outputs/figures"

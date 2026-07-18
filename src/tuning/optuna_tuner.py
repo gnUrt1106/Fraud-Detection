@@ -136,12 +136,14 @@ def objective(trial, X, y, model_name):
             y_prob = model.predict_proba(X_val)[:, 1]
 
         elif model_name == "LogisticRegression":
+            # l1_ratio: 0.0 = L2, 1.0 = L1 (replaces deprecated penalty=)
+            l1_ratio = trial.suggest_float("l1_ratio", 0.0, 1.0)
             param = {
                 "C": trial.suggest_float("C", 1e-4, 100.0, log=True),
-                "penalty": trial.suggest_categorical("penalty", ["l1", "l2"]),
-                "solver": "saga",  # supports both l1 and l2
-                "max_iter": 2000,
-                "tol": 1e-2,       # Increase tolerance to speed up convergence
+                "l1_ratio": l1_ratio,
+                "solver": "saga",   # saga supports full elastic-net / l1 / l2
+                "max_iter": 5000,   # saga converges slowly on 284k rows
+                "tol": 1e-2,
                 "class_weight": trial.suggest_categorical(
                     "class_weight", ["balanced", None],
                 ),

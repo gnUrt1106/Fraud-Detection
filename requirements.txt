@@ -6,9 +6,18 @@ scikit-learn>=1.4
 # Imbalance handling
 imbalanced-learn>=0.12
 
-# Models
+# Models — Machine Learning
 xgboost>=2.0
 catboost>=1.2
+
+# Models — Deep Learning
+torch>=2.2                  # PyTorch; cài GPU build riêng nếu cần CUDA
+
+# Explainability
+shap>=0.45
+
+# Statistical tests (paired comparison giữa ML vs DL)
+scipy>=1.12
 
 # Visualization
 matplotlib>=3.8
@@ -29,3 +38,6 @@ jupyter
 
 # Hyperparameter tuning
 optuna
+
+# Data profiling
+ydata-profiling>=4.6
