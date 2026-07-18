@@ -108,30 +108,33 @@ if torch.cuda.is_available():
 # print("Sanity check passed!")
 
 # ─────────────────────────────────────────────────────────────────────
-# CELL 7 — FULL EXPERIMENT RUN (ML + ANN)
-# Kaggle P100/T4 GPU — ước tính tổng ~2-3 giờ với settings này
+# CELL 7 — FULL EXPERIMENT RUN (GPU MODELS ONLY)
+# Kaggle T4 GPU — Chạy XGBoost, CatBoost, và ANN
+# Bỏ qua Logistic Regression và Random Forest để tránh CPU timeout (vượt 5 tiếng).
 #
-# Cơ chế dừng sớm Optuna (whichever comes first):
-#   --trials 20      : tối đa 20 trials mỗi model mỗi fold
+# Cơ chế dừng sớm Optuna:
+#   --trials 20      : tối đa 20 trials
 #   --patience 7     : dừng ML tune nếu 7 trial liên tiếp không cải thiện
 #   --ann-patience 5 : dừng ANN tune nếu 5 trial liên tiếp không cải thiện
 #   --timeout 300    : hard cap 5 phút mỗi Optuna study (backup)
-#   ANN còn có MedianPruner: cắt sớm từng trial tệ hơn median các trial khác
 # ─────────────────────────────────────────────────────────────────────
 import time
+import subprocess
+import sys
+
 t0 = time.time()
+REPO_DIR = "/kaggle/working/Fraud-Detection"
 
 subprocess.run([
     sys.executable, "run_experiment.py",
+    "--models",       "XGB", "CatBoost", # CHỈ chạy GPU models
     "--folds",        "5",
-    "--trials",       "20",     # max 20 trials per model per fold
-    "--patience",     "7",      # ML early-stop: 7 trials no improve → stop
-    "--ann-patience", "5",      # ANN early-stop: 5 trials no improve → stop
-    "--timeout",      "300",    # hard cap: 5 phút/study (backup safety net)
+    "--trials",       "20",     
+    "--patience",     "7",      
+    "--ann-patience", "5",      
+    "--timeout",      "300",    
     "--seed",         "42",
-    # "--no-ann",              # bỏ comment để chỉ chạy ML
-    # "--no-shap",             # bỏ comment để bỏ qua SHAP và chạy nhanh hơn
-], check=True)
+], cwd=REPO_DIR, check=True)
 
 elapsed = time.time() - t0
 print(f"\n✅ Experiment done in {elapsed/3600:.2f} hours")
