@@ -108,9 +108,11 @@ if torch.cuda.is_available():
 # print("Sanity check passed!")
 
 # ─────────────────────────────────────────────────────────────────────
-# CELL 7 — FULL EXPERIMENT RUN (GPU MODELS ONLY)
-# Kaggle T4 GPU — Chạy XGBoost, CatBoost, và ANN
-# Bỏ qua Logistic Regression và Random Forest để tránh CPU timeout (vượt 5 tiếng).
+# CELL 7 — FULL EXPERIMENT RUN (4 ML + ANN, GPU)
+# Chạy toàn bộ 5 model: LR, RF, XGB, CatBoost, ANN × 3 conditions × 5 folds
+# 
+# Optuna không còn nested CV — dùng outer-fold val set trực tiếp (5x nhanh hơn).
+# Checkpoint sau mỗi fold: nếu timeout, chạy lại sẽ tiếp tục từ chỗ dừng.
 #
 # Cơ chế dừng sớm Optuna:
 #   --trials 20      : tối đa 20 trials
@@ -127,7 +129,7 @@ REPO_DIR = "/kaggle/working/Fraud-Detection"
 
 subprocess.run([
     sys.executable, "run_experiment.py",
-    "--models",       "XGB", "CatBoost", # CHỈ chạy GPU models
+    "--models",       "LR", "RF", "XGB", "CatBoost",  # Tất cả 4 ML models
     "--folds",        "5",
     "--trials",       "20",     
     "--patience",     "7",      

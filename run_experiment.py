@@ -69,6 +69,34 @@ for d in OUTPUTS.values():
     os.makedirs(d, exist_ok=True)
 
 
+# ── Checkpoint helpers ──────────────────────────────────────────────────
+
+def _save_checkpoint(fold_records: list[dict], output_dir: str) -> None:
+    """Ghi fold_results.csv ngay sau mỗi fold — tránh mất data khi crash/timeout."""
+    pd.DataFrame(fold_records).to_csv(
+        f"{output_dir}/fold_results.csv", index=False
+    )
+
+
+def _load_checkpoint(output_dir: str) -> tuple[list[dict], set]:
+    """Load fold_results.csv (nếu có) để resume từ chỗ đã chạy.
+
+    Returns:
+        fold_records : list of metric dicts đã chạy.
+        done_keys   : set of (model, condition, fold) đã hoàn thành.
+    """
+    checkpoint_path = f"{output_dir}/fold_results.csv"
+    if os.path.exists(checkpoint_path):
+        df = pd.read_csv(checkpoint_path)
+        records = df.to_dict("records")
+        done_keys = {
+            (r["model"], r["condition"], int(r["fold"])) for r in records
+        }
+        logger.info("🔄 Checkpoint loaded: %d fold(s) already done.", len(records))
+        return records, done_keys
+    return [], set()
+
+
 # ── Global seed ───────────────────────────────────────────────────────
 
 def set_global_seed(seed: int) -> None:
@@ -89,21 +117,23 @@ def set_global_seed(seed: int) -> None:
     logger.info("Global seed set to %d", seed)
 
 
-# ── Optuna tune helpers ───────────────────────────────────────────────
-
-# Map tên ngắn (dùng trong models.py) → tên Optuna objective (dùng trong optuna_tuner.py)
+# ── Model name mapping for Optuna tuner ─────────────
 _ML_MODEL_NAME_MAP = {
-    "RF":       "RandomForestClassifier",
-    "XGB":      "XGBClassifier",
+    "RF": "RandomForestClassifier",
+    "XGB": "XGBClassifier",
     "CatBoost": "CatBoostClassifier",
-    "LR":       "LogisticRegression",
+    "LR": "LogisticRegression",
 }
 
+
+# ── Optuna tune helpers ──────────────────────────
 
 def tune_ml_model(
     model_name: str,
     X_train: np.ndarray,
     y_train: np.ndarray,
+    X_val: np.ndarray,
+    y_val: np.ndarray,
     n_trials: int,
     patience: int,
     seed: int,
@@ -111,6 +141,8 @@ def tune_ml_model(
 ) -> dict:
     """
     Chạy Optuna tune cho 1 ML model trên dữ liệu train của fold hiện tại.
+
+    Optuna dùng outer-fold val set (X_val/y_val) — không nested CV bên trong.
 
     Dừng sớm theo 3 điều kiện (whichever comes first):
     - n_trials đạt giới hạn
@@ -126,7 +158,9 @@ def tune_ml_model(
     callbacks = [EarlyStoppingCallback(patience=patience)]
 
     study.optimize(
-        lambda trial: ml_optuna_objective(trial, X_train, y_train, optuna_name),
+        lambda trial: ml_optuna_objective(
+            trial, X_train, y_train, optuna_name, X_val=X_val, y_val=y_val
+        ),
         n_trials=n_trials,
         timeout=timeout,      # dừng sau X giây bất kể còn trial nào
         n_jobs=1,
@@ -136,7 +170,7 @@ def tune_ml_model(
     best = study.best_trial
     params = dict(best.params)
 
-    # ── Fix LR solver ─────────────────────────────────────────────────
+    # ── Fix LR solver ──────────────────────────────────────────────────
     if model_name == "LR":
         params.setdefault("solver", "saga")
         params.setdefault("max_iter", 5000)
@@ -247,8 +281,10 @@ def run_ml_fold(
     X_tr_bal, y_tr_bal = apply_condition(X_train, y_train, condition=condition)
 
     # 2. Optuna tune trên dữ liệu đã balance
+    # Truyền X_val/y_val từ outer fold — không nested CV bên trong
     best_params = tune_ml_model(
         model_name, X_tr_bal, y_tr_bal,
+        X_val=X_val, y_val=y_val,
         n_trials=n_trials, patience=patience, seed=seed, timeout=timeout,
     )
 
@@ -417,13 +453,16 @@ def main(
     # ── Sinh fold indices — DÙNG CHUNG cho cả ML lẫn DL ──
     folds = get_fold_indices(y, n_splits=n_folds, random_state=seed)
 
-    fold_records    = []
+    # ── Load checkpoint: resume từ chỗ dừng nếu có ──
+    fold_records, done_keys = _load_checkpoint(OUTPUTS["metrics"])
+
     summary_records = []
     paired_records  = []
 
-    # Thu thập PR-AUC per fold per (model, condition) để paired test
-    # key: (model_name, condition), value: list[float] length=n_folds
+    # Rebuild prauc_store từ checkpoint để paired-test đúng sau resume
     prauc_store: dict[tuple, list[float]] = {}
+    for r in fold_records:
+        prauc_store.setdefault((r["model"], r["condition"]), []).append(r["PR-AUC"])
 
     all_model_keys = list(models)
     if run_ann:
@@ -439,7 +478,6 @@ def main(
             y_train, y_val         = y[train_idx], y[val_idx]
 
             # Scale: fit trên train fold, transform cả 2 — không leakage
-            # Tận dụng scale_features() nhưng truyền dưới dạng array
             from sklearn.preprocessing import RobustScaler
             import pandas as _pd
 
@@ -456,6 +494,14 @@ def main(
 
             # ── ML models ──
             for model_name in models:
+                ck_key = (model_name, condition, fold_idx)
+                if ck_key in done_keys:
+                    logger.info(
+                        "⏭  Skip (checkpoint): %s | %s | fold %d",
+                        model_name, condition, fold_idx,
+                    )
+                    continue
+
                 t0 = time.time()
                 metrics = run_ml_fold(
                     model_name=model_name,
@@ -471,27 +517,38 @@ def main(
                     run_shap=run_shap,
                 )
                 fold_records.append(metrics)
+                done_keys.add(ck_key)
                 prauc_store.setdefault((model_name, condition), []).append(metrics["PR-AUC"])
+                _save_checkpoint(fold_records, OUTPUTS["metrics"])  # checkpoint ngay sau mỗi fold
                 logger.info("  Done in %.1fs", time.time() - t0)
 
             # ── ANN ──
             if run_ann:
-                t0 = time.time()
-                metrics = run_ann_fold(
-                    condition=condition,
-                    fold=fold_idx,
-                    X_train=X_train, y_train=y_train,
-                    X_val=X_val, y_val=y_val,
-                    feature_names=feature_names,
-                    n_trials=n_trials,
-                    patience=ann_patience,
-                    seed=seed,
-                    timeout=timeout,
-                    run_shap=run_shap,
-                )
-                fold_records.append(metrics)
-                prauc_store.setdefault(("ANN", condition), []).append(metrics["PR-AUC"])
-                logger.info("  Done in %.1fs", time.time() - t0)
+                ck_key = ("ANN", condition, fold_idx)
+                if ck_key in done_keys:
+                    logger.info(
+                        "⏭  Skip (checkpoint): ANN | %s | fold %d",
+                        condition, fold_idx,
+                    )
+                else:
+                    t0 = time.time()
+                    metrics = run_ann_fold(
+                        condition=condition,
+                        fold=fold_idx,
+                        X_train=X_train, y_train=y_train,
+                        X_val=X_val, y_val=y_val,
+                        feature_names=feature_names,
+                        n_trials=n_trials,
+                        patience=ann_patience,
+                        seed=seed,
+                        timeout=timeout,
+                        run_shap=run_shap,
+                    )
+                    fold_records.append(metrics)
+                    done_keys.add(ck_key)
+                    prauc_store.setdefault(("ANN", condition), []).append(metrics["PR-AUC"])
+                    _save_checkpoint(fold_records, OUTPUTS["metrics"])  # checkpoint ngay sau mỗi fold
+                    logger.info("  Done in %.1fs", time.time() - t0)
 
         # ── Summary per (model, condition) ──
         for mkey in all_model_keys:
