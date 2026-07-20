@@ -16,15 +16,16 @@ import subprocess, os, sys
 
 # Clone repo (thay URL nếu đổi tên)
 REPO_URL = "https://github.com/gnUrt1106/Fraud-Detection.git"
-REPO_DIR = "Fraud-Detection"
+REPO_DIR = "/kaggle/working/Fraud-Detection"
 
 if not os.path.exists(REPO_DIR):
-    subprocess.run(["git", "clone", REPO_URL], check=True)
+    subprocess.run(["git", "clone", REPO_URL, REPO_DIR], check=True)
 else:
     subprocess.run(["git", "-C", REPO_DIR, "pull"], check=True)
 
 os.chdir(REPO_DIR)
-sys.path.insert(0, ".")
+if REPO_DIR not in sys.path:
+    sys.path.insert(0, REPO_DIR)
 print("Working dir:", os.getcwd())
 
 # ─────────────────────────────────────────────────────────────────────
@@ -159,7 +160,8 @@ print(f"\n✅ Experiment done in {elapsed/3600:.2f} hours")
 # ─────────────────────────────────────────────────────────────────────
 import pandas as pd
 
-summary = pd.read_csv("outputs/metrics/summary.csv")
+metrics_dir = "/kaggle/working/Fraud-Detection/outputs/metrics"
+summary = pd.read_csv(f"{metrics_dir}/summary.csv")
 print("\n=== Summary (mean PR-AUC per model × condition) ===")
 pivot = summary.pivot_table(
     index="model", columns="condition",
@@ -168,7 +170,7 @@ pivot = summary.pivot_table(
 print(pivot.round(4).to_string())
 
 print("\n=== Paired Wilcoxon Test Results ===")
-paired = pd.read_csv("outputs/metrics/paired_tests.csv")
+paired = pd.read_csv(f"{metrics_dir}/paired_tests.csv")
 sig = paired[paired["significant"] == True]
 print(f"Significant pairs: {len(sig)}/{len(paired)}")
 print(sig[["model_a", "model_b", "condition", "mean_a", "mean_b", "p_value", "winner"]].to_string())
@@ -179,6 +181,6 @@ print(sig[["model_a", "model_b", "condition", "mean_a", "mean_b", "p_value", "wi
 import shutil, os
 
 os.makedirs("/kaggle/working", exist_ok=True)
-shutil.copytree("outputs/metrics",     "/kaggle/working/metrics",     dirs_exist_ok=True)
-shutil.copytree("outputs/shap_values", "/kaggle/working/shap_values", dirs_exist_ok=True)
+shutil.copytree("/kaggle/working/Fraud-Detection/outputs/metrics",     "/kaggle/working/metrics",     dirs_exist_ok=True)
+shutil.copytree("/kaggle/working/Fraud-Detection/outputs/shap_values", "/kaggle/working/shap_values", dirs_exist_ok=True)
 print("Results copied to /kaggle/working/ — download from Kaggle Output panel.")
