@@ -131,6 +131,18 @@ def get_model(
     else:
         logger.info("%s [%s] — no class-weighting (data resampled)", name, condition)
 
+    # Auto GPU acceleration for XGBoost and CatBoost if CUDA is available (e.g. Kaggle T4)
+    try:
+        import torch
+        if torch.cuda.is_available():
+            if name == "XGB":
+                params.setdefault("tree_method", "hist")
+                params.setdefault("device", "cuda")
+            elif name == "CatBoost":
+                params.setdefault("task_type", "GPU")
+    except Exception:
+        pass
+
     model = _CONSTRUCTORS[name](**params)
     logger.info("Created %s with params: %s", name, params)
     return model

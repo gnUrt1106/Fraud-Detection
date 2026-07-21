@@ -25,9 +25,15 @@ Usage:
     python run_experiment.py --conditions Class-weighting --trials 3
 """
 
+# ── Prevent BLAS/OpenMP segfault on macOS ARM64 ──────────────────────
+# Must be set BEFORE importing numpy/sklearn/torch.
+import os
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+
 import argparse
 import logging
-import os
 import random
 import sys
 import time
@@ -107,11 +113,9 @@ def set_global_seed(seed: int) -> None:
     try:
         import torch
         torch.manual_seed(seed)
+        torch.set_num_threads(1)  # Prevent BLAS/OpenMP conflicts on macOS
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
-        # Reproducibility trên MPS (Apple Silicon)
-        if torch.backends.mps.is_available():
-            torch.mps.manual_seed(seed)
     except ImportError:
         pass
     logger.info("Global seed set to %d", seed)
@@ -500,6 +504,19 @@ def main(
                         "⏭  Skip (checkpoint): %s | %s | fold %d",
                         model_name, condition, fold_idx,
                     )
+                    if run_shap:
+                        shap_path = f"{OUTPUTS['shap_values']}/{model_name}_{condition}_fold{fold_idx}.npy"
+                        if not os.path.exists(shap_path):
+                            model_path = f"{OUTPUTS['models']}/{model_name}_{condition}_fold{fold_idx}.pkl"
+                            if os.path.exists(model_path):
+                                try:
+                                    logger.info("  ⚡ Backfilling missing SHAP: %s | %s | fold %d", model_name, condition, fold_idx)
+                                    import joblib
+                                    from src.explain import compute_shap_ml
+                                    saved_m = joblib.load(model_path)
+                                    compute_shap_ml(saved_m, model_name, X_val, feature_names, save_path=shap_path, seed=seed)
+                                except Exception as e:
+                                    logger.warning("SHAP backfill failed for %s fold %d: %s", model_name, fold_idx, e)
                     continue
 
                 t0 = time.time()
@@ -530,6 +547,36 @@ def main(
                         "⏭  Skip (checkpoint): ANN | %s | fold %d",
                         condition, fold_idx,
                     )
+                    if run_shap:
+                        shap_path = f"{OUTPUTS['shap_values']}/ANN_{condition}_fold{fold_idx}.npy"
+                        if not os.path.exists(shap_path):
+                            model_path = f"{OUTPUTS['models']}/ANN_{condition}_fold{fold_idx}.pt"
+                            if os.path.exists(model_path):
+                                try:
+                                    logger.info("  ⚡ Backfilling missing SHAP: ANN | %s | fold %d", condition, fold_idx)
+                                    import torch
+                                    from src.models_dl import FraudANN
+                                    from src.explain import compute_shap_dl
+                                    state_dict = torch.load(model_path, map_location="cpu", weights_only=True)
+                                    # Reconstruct architecture from Linear layers (2D weights only)
+                                    linear_indices_shapes = sorted([
+                                        (int(k.split('.')[1]), state_dict[k].shape[0])
+                                        for k in state_dict
+                                        if k.startswith('network.') and k.endswith('.weight') and state_dict[k].dim() == 2
+                                    ])
+                                    units = [s for _, s in linear_indices_shapes[:-1]]  # exclude output
+                                    # Infer dropout: gap=4 between consecutive Linears → Dropout present
+                                    indices = [idx for idx, _ in linear_indices_shapes]
+                                    dropout_rates = []
+                                    for j in range(len(indices) - 1):
+                                        gap = indices[j + 1] - indices[j]
+                                        dropout_rates.append(0.1 if gap == 4 else 0.0)  # exact rate irrelevant in eval mode
+                                    ann_m = FraudANN(input_dim=X_train.shape[1], n_layers=len(units), units=units, dropout_rates=dropout_rates)
+                                    ann_m.load_state_dict(state_dict)
+                                    # Use raw X_train for background (no resampling needed, just 100 samples)
+                                    compute_shap_dl(ann_m, X_train, X_val, feature_names, save_path=shap_path, seed=seed)
+                                except Exception as e:
+                                    logger.warning("SHAP backfill failed for ANN fold %d: %s", fold_idx, e)
                 else:
                     t0 = time.time()
                     metrics = run_ann_fold(

@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 DEVICE = torch.device(
     "cuda" if torch.cuda.is_available()
-    else "mps" if torch.backends.mps.is_available()  # Apple M2 Pro
     else "cpu"
 )
 logger.info("ANN device: %s", DEVICE)

@@ -16,16 +16,15 @@ import subprocess, os, sys
 
 # Clone repo (thay URL nếu đổi tên)
 REPO_URL = "https://github.com/gnUrt1106/Fraud-Detection.git"
-REPO_DIR = "/kaggle/working/Fraud-Detection"
+REPO_DIR = "Fraud-Detection"
 
 if not os.path.exists(REPO_DIR):
-    subprocess.run(["git", "clone", REPO_URL, REPO_DIR], check=True)
+    subprocess.run(["git", "clone", REPO_URL], check=True)
 else:
     subprocess.run(["git", "-C", REPO_DIR, "pull"], check=True)
 
 os.chdir(REPO_DIR)
-if REPO_DIR not in sys.path:
-    sys.path.insert(0, REPO_DIR)
+sys.path.insert(0, ".")
 print("Working dir:", os.getcwd())
 
 # ─────────────────────────────────────────────────────────────────────
@@ -78,11 +77,9 @@ print(f"   Accessible: {os.path.exists(LOCAL_DATA)}")
 # CELL 4 — (Optional) Data Profiling
 # Bỏ comment nếu muốn tạo HTML report — mất ~5-10 phút
 # ─────────────────────────────────────────────────────────────────────
-# subprocess.run([
-#     sys.executable, "src/data_profiling.py",
-#     "--minimal",   # bỏ --minimal nếu muốn report đầy đủ hơn
-# ], check=True)
-# print("Profiling report saved to outputs/profiling/data_profile.html")
+subprocess.run([
+sys.executable, "src/data_profiling.py",
+print("Profiling report saved to outputs/profiling/data_profile.html")
 
 # ─────────────────────────────────────────────────────────────────────
 # CELL 5 — Kiểm tra GPU
@@ -97,16 +94,16 @@ if torch.cuda.is_available():
 # CELL 6 — Quick sanity check (2 folds, 3 trials, LR only, no SHAP)
 # Uncomment để test pipeline trước khi chạy full
 # ─────────────────────────────────────────────────────────────────────
-# subprocess.run([
-#     sys.executable, "run_experiment.py",
-#     "--models", "LR",
-#     "--conditions", "Class-weighting",
-#     "--folds", "2",
-#     "--trials", "3",
-#     "--no-shap",
-#     "--no-ann",
-# ], check=True)
-# print("Sanity check passed!")
+subprocess.run([
+    sys.executable, "run_experiment.py",
+    "--models", "LR",
+    "--conditions", "Class-weighting",
+    "--folds", "2",
+    "--trials", "3",
+    "--no-shap",
+    "--no-ann",
+], check=True)
+print("Sanity check passed!")
 
 # ─────────────────────────────────────────────────────────────────────
 # CELL 7 — FULL EXPERIMENT RUN (4 ML + ANN, GPU)
@@ -121,6 +118,21 @@ if torch.cuda.is_available():
 #   --ann-patience 5 : dừng ANN tune nếu 5 trial liên tiếp không cải thiện
 #   --timeout 300    : hard cap 5 phút mỗi Optuna study (backup)
 # ─────────────────────────────────────────────────────────────────────
+# CELL 3b — (Optional) Load existing outputs / checkpoints if uploaded as Dataset
+# ─────────────────────────────────────────────────────────────────────
+for root, dirs, files in os.walk("/kaggle/input"):
+    if "fold_results.csv" in files:
+        checkpoint_dir = root
+        print(f"📦 Found uploaded checkpoint at: {checkpoint_dir}")
+        target_outputs = f"{REPO_DIR}/outputs/metrics"
+        os.makedirs(target_outputs, exist_ok=True)
+        shutil.copy2(os.path.join(checkpoint_dir, "fold_results.csv"), os.path.join(target_outputs, "fold_results.csv"))
+        print("✅ Checkpoint fold_results.csv restored into Fraud-Detection/outputs/metrics/")
+        break
+
+# ─────────────────────────────────────────────────────────────────────
+# CELL 7 — FULL EXPERIMENT RUN (ML + ANN, GPU, Parallelized)
+# ─────────────────────────────────────────────────────────────────────
 import time
 import subprocess
 import sys
@@ -128,14 +140,16 @@ import sys
 t0 = time.time()
 REPO_DIR = "/kaggle/working/Fraud-Detection"
 
+# Chạy toàn bộ 5 model: LR, RF, XGB, CatBoost, ANN × 3 conditions × 5 folds
+# Tự động n_jobs=-1 cho SMOTE/SMOTE-ENN & Skip các fold đã làm trong checkpoint.
 subprocess.run([
     sys.executable, "run_experiment.py",
-    "--models",       "LR", "RF", "XGB", "CatBoost",  # Tất cả 4 ML models
+    "--models",       "LR", "RF", "XGB", "CatBoost",
     "--folds",        "5",
-    "--trials",       "20",     
-    "--patience",     "7",      
-    "--ann-patience", "5",      
-    "--timeout",      "300",    
+    "--trials",       "15",
+    "--patience",     "5",
+    "--ann-patience", "5",
+    "--timeout",      "300",
     "--seed",         "42",
 ], cwd=REPO_DIR, check=True)
 
@@ -143,44 +157,35 @@ elapsed = time.time() - t0
 print(f"\n✅ Experiment done in {elapsed/3600:.2f} hours")
 
 # ─────────────────────────────────────────────────────────────────────
-# CELL 8 — Nếu muốn chạy tách biệt: chỉ ML, không ANN
-# ─────────────────────────────────────────────────────────────────────
-# subprocess.run([
-#     sys.executable, "run_experiment.py",
-#     "--no-ann",
-#     "--folds",    "5",
-#     "--trials",   "20",
-#     "--patience", "7",
-#     "--timeout",  "300",
-#     "--seed",     "42",
-# ], check=True)
-
-# ─────────────────────────────────────────────────────────────────────
 # CELL 9 — Xem kết quả
 # ─────────────────────────────────────────────────────────────────────
 import pandas as pd
 
-metrics_dir = "/kaggle/working/Fraud-Detection/outputs/metrics"
-summary = pd.read_csv(f"{metrics_dir}/summary.csv")
-print("\n=== Summary (mean PR-AUC per model × condition) ===")
-pivot = summary.pivot_table(
-    index="model", columns="condition",
-    values="PR-AUC_mean", aggfunc="first",
-)
-print(pivot.round(4).to_string())
+metrics_summary_path = os.path.join(REPO_DIR, "outputs", "metrics", "summary.csv")
+if os.path.exists(metrics_summary_path):
+    summary = pd.read_csv(metrics_summary_path)
+    print("\n=== Summary (mean PR-AUC per model × condition) ===")
+    if "PR-AUC_mean" in summary.columns:
+        pivot = summary.pivot_table(
+            index="model", columns="condition",
+            values="PR-AUC_mean", aggfunc="first",
+        )
+        print(pivot.round(4).to_string())
+    else:
+        print(summary.to_string())
 
-print("\n=== Paired Wilcoxon Test Results ===")
-paired = pd.read_csv(f"{metrics_dir}/paired_tests.csv")
-sig = paired[paired["significant"] == True]
-print(f"Significant pairs: {len(sig)}/{len(paired)}")
-print(sig[["model_a", "model_b", "condition", "mean_a", "mean_b", "p_value", "winner"]].to_string())
+paired_path = os.path.join(REPO_DIR, "outputs", "metrics", "paired_tests.csv")
+if os.path.exists(paired_path):
+    print("\n=== Paired Wilcoxon Test Results ===")
+    paired = pd.read_csv(paired_path)
+    sig = paired[paired.get("significant", False) == True]
+    print(f"Significant pairs: {len(sig)}/{len(paired)}")
 
 # ─────────────────────────────────────────────────────────────────────
-# CELL 10 — Zip và save outputs (Kaggle Output)
+# CELL 10 — Zip toàn bộ outputs chuẩn bị download (1-Click Download)
 # ─────────────────────────────────────────────────────────────────────
 import shutil, os
 
 os.makedirs("/kaggle/working", exist_ok=True)
-shutil.copytree("/kaggle/working/Fraud-Detection/outputs/metrics",     "/kaggle/working/metrics",     dirs_exist_ok=True)
-shutil.copytree("/kaggle/working/Fraud-Detection/outputs/shap_values", "/kaggle/working/shap_values", dirs_exist_ok=True)
-print("Results copied to /kaggle/working/ — download from Kaggle Output panel.")
+shutil.make_archive("/kaggle/working/outputs", 'zip', f"{REPO_DIR}/outputs")
+print("🎉 All outputs zipped to /kaggle/working/outputs.zip — Click Download on Kaggle Output Panel!")

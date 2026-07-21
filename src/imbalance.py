@@ -69,11 +69,11 @@ def apply_condition(
 
     elif matched_key == "SMOTE":
         logger.info("Applying SMOTE (random_state=%d)", random_state)
-        sampler = SMOTE(random_state=random_state)
+        sampler = SMOTE(random_state=random_state, n_jobs=1)
 
     elif matched_key == "SMOTE-ENN":
         logger.info("Applying SMOTE-ENN (random_state=%d)", random_state)
-        sampler = SMOTEENN(random_state=random_state)
+        sampler = SMOTEENN(random_state=random_state, n_jobs=1)
 
     X_res, y_res = sampler.fit_resample(X_train, y_train)
     _log_ratio("After", y_res)

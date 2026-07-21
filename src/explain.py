@@ -72,6 +72,10 @@ def compute_shap_ml(
             feature_perturbation="interventional",
         )
         shap_values = explainer.shap_values(X_val)
+        if isinstance(shap_values, list):
+            shap_values = shap_values[1]
+        elif isinstance(shap_values, np.ndarray) and shap_values.ndim == 3:
+            shap_values = shap_values[:, :, 1]
 
     else:
         raise ValueError(
