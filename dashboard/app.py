@@ -324,8 +324,11 @@ def main():
 
         fig_file = os.path.join(project_root, "outputs", "figures", f"{prefix_map[plot_type]}_{model_code[0]}_{model_code[1]}.png")
         if os.path.exists(fig_file):
+            st.write("")
             with st.container(border=True):
-                st.image(fig_file, use_container_width=True)
+                col_left, col_center, col_right = st.columns([1, 4, 1])
+                with col_center:
+                    st.image(fig_file, width=600)
         else:
             st.info("Chưa tìm thấy biểu đồ tương ứng. Bạn vui lòng chạy lại script sinh SHAP plots.")
 
