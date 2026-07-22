@@ -120,29 +120,9 @@ Options:
 
 ### C. Generate Full Data Profiling Report
 ```bash
-python src/data_profiling.py --minimal
+python src/data_profiling.py
 ```
 > Generates comprehensive HTML report at `outputs/profiling/data_profile.html`.
-
----
-
-## 📤 Git Commit & Push Instructions (Sharing with Coworkers)
-
-To push the repository to GitHub cleanly without large raw data or binary files:
-
-```bash
-# 1. Check status
-git status
-
-# 2. Add modified & new files
-git add README.md requirements.txt dashboard/ src/ run_experiment.py
-
-# 3. Commit changes
-git commit -m "docs: update README with full experiment results, SHAP XAI plots, and coworker setup guide"
-
-# 4. Push to GitHub
-git push origin main
-```
 
 ---
 
