@@ -216,3 +216,63 @@ def save_summary(
         f"{output_dir}/paired_tests.csv", index=False
     )
     logger.info("Saved metrics to %s/", output_dir)
+
+
+# ── Business & Practical Utility Evaluation ─────────────────────────
+
+def cohens_d(x: list[float], y: list[float]) -> float:
+    """Compute Cohen's d effect size between two score distributions."""
+    nx, ny = len(x), len(y)
+    dof = nx + ny - 2
+    if dof <= 0:
+        return 0.0
+    var_x = np.var(x, ddof=1) if nx > 1 else 0.0
+    var_y = np.var(y, ddof=1) if ny > 1 else 0.0
+    pooled_std = np.sqrt(((nx - 1) * var_x + (ny - 1) * var_y) / dof)
+    if pooled_std < 1e-12:
+        return 0.0
+    return float((np.mean(x) - np.mean(y)) / pooled_std)
+
+
+def compute_business_utility(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    amounts: Optional[np.ndarray] = None,
+    fp_cost: float = 10.0,
+) -> dict:
+    """
+    Compute business financial impact & Precision@Top-K metrics.
+
+    Args:
+        y_true: Ground truth labels (0/1).
+        y_prob: Predicted probabilities.
+        amounts: Transaction monetary amounts (optional).
+        fp_cost: Operational cost per false alarm ($10 default).
+
+    Returns:
+        Dict with Precision@100, Precision@200, Precision@500, Net_Savings.
+    """
+    sorted_indices = np.argsort(y_prob)[::-1]
+    y_true_sorted = y_true[sorted_indices]
+
+    precisions_k = {}
+    for k in [100, 200, 500]:
+        k_eff = min(k, len(y_true_sorted))
+        top_k_tp = np.sum(y_true_sorted[:k_eff])
+        precisions_k[f"Precision@Top{k}"] = round(float(top_k_tp / k_eff), 4)
+
+    # Net Financial Savings calculation (if amounts provided)
+    net_savings = 0.0
+    if amounts is not None:
+        amounts_sorted = amounts[sorted_indices]
+        # Optimal F1 threshold prediction
+        thresh, _ = find_f1_optimal_threshold(y_true, y_prob)
+        y_pred = (y_prob >= thresh).astype(int)
+        tp_mask = (y_pred == 1) & (y_true == 1)
+        fp_mask = (y_pred == 1) & (y_true == 0)
+        saved_fraud_val = np.sum(amounts[tp_mask])
+        false_alarm_cost = np.sum(fp_mask) * fp_cost
+        net_savings = float(saved_fraud_val - false_alarm_cost)
+
+    res = {**precisions_k, "Net_Savings_USD": round(net_savings, 2)}
+    return res

@@ -1,1 +1,31 @@
-
+model_a,model_b,condition,metric,mean_a,mean_b,statistic,p_value,significant,winner
+RF,XGB,Class-weighting,PR-AUC,0.84075,0.85806,1.0,0.125,False,no significant difference
+RF,CatBoost,Class-weighting,PR-AUC,0.84075,0.76305,0.0,0.0625,False,no significant difference
+RF,LR,Class-weighting,PR-AUC,0.84075,0.72578,0.0,0.0625,False,no significant difference
+RF,ANN,Class-weighting,PR-AUC,0.84075,0.77649,0.0,0.0625,False,no significant difference
+XGB,CatBoost,Class-weighting,PR-AUC,0.85806,0.76305,0.0,0.0625,False,no significant difference
+XGB,LR,Class-weighting,PR-AUC,0.85806,0.72578,0.0,0.0625,False,no significant difference
+XGB,ANN,Class-weighting,PR-AUC,0.85806,0.77649,0.0,0.0625,False,no significant difference
+CatBoost,LR,Class-weighting,PR-AUC,0.76305,0.72578,2.0,0.1875,False,no significant difference
+CatBoost,ANN,Class-weighting,PR-AUC,0.76305,0.77649,4.0,0.4375,False,no significant difference
+LR,ANN,Class-weighting,PR-AUC,0.72578,0.77649,0.0,0.0625,False,no significant difference
+RF,XGB,SMOTE,PR-AUC,0.84953,0.85781,0.0,0.0625,False,no significant difference
+RF,CatBoost,SMOTE,PR-AUC,0.84953,0.83686,4.0,0.4375,False,no significant difference
+RF,LR,SMOTE,PR-AUC,0.84953,0.71686,0.0,0.0625,False,no significant difference
+RF,ANN,SMOTE,PR-AUC,0.84953,0.82431,4.0,0.4375,False,no significant difference
+XGB,CatBoost,SMOTE,PR-AUC,0.85781,0.83686,0.0,0.0625,False,no significant difference
+XGB,LR,SMOTE,PR-AUC,0.85781,0.71686,0.0,0.0625,False,no significant difference
+XGB,ANN,SMOTE,PR-AUC,0.85781,0.82431,3.0,0.3125,False,no significant difference
+CatBoost,LR,SMOTE,PR-AUC,0.83686,0.71686,0.0,0.0625,False,no significant difference
+CatBoost,ANN,SMOTE,PR-AUC,0.83686,0.82431,6.0,0.8125,False,no significant difference
+LR,ANN,SMOTE,PR-AUC,0.71686,0.82431,0.0,0.0625,False,no significant difference
+RF,XGB,SMOTE-ENN,PR-AUC,0.84307,0.84004,6.0,0.8125,False,no significant difference
+RF,CatBoost,SMOTE-ENN,PR-AUC,0.84307,0.83622,1.0,0.125,False,no significant difference
+RF,LR,SMOTE-ENN,PR-AUC,0.84307,0.71645,0.0,0.0625,False,no significant difference
+RF,ANN,SMOTE-ENN,PR-AUC,0.84307,0.82674,0.0,0.0625,False,no significant difference
+XGB,CatBoost,SMOTE-ENN,PR-AUC,0.84004,0.83622,7.0,1.0,False,no significant difference
+XGB,LR,SMOTE-ENN,PR-AUC,0.84004,0.71645,0.0,0.0625,False,no significant difference
+XGB,ANN,SMOTE-ENN,PR-AUC,0.84004,0.82674,4.0,0.4375,False,no significant difference
+CatBoost,LR,SMOTE-ENN,PR-AUC,0.83622,0.71645,0.0,0.0625,False,no significant difference
+CatBoost,ANN,SMOTE-ENN,PR-AUC,0.83622,0.82674,2.0,0.1875,False,no significant difference
+LR,ANN,SMOTE-ENN,PR-AUC,0.71645,0.82674,0.0,0.0625,False,no significant difference

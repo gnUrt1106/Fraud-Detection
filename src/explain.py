@@ -137,16 +137,20 @@ def compute_shap_dl(
     background = torch.tensor(X_train[bg_idx], dtype=torch.float32)
 
     model.eval()
-    explainer = shap.DeepExplainer(model, background)
+    eval_module = getattr(model, "network", model)
+    explainer = shap.DeepExplainer(eval_module, background)
 
     X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
     shap_values = explainer.shap_values(X_val_tensor)
 
-    # DeepExplainer có thể trả về list; lấy class 1
+    # DeepExplainer có thể trả về list hoặc array 3D
     if isinstance(shap_values, list):
-        shap_values = shap_values[1]
-    if isinstance(shap_values, np.ndarray) is False:
+        shap_values = shap_values[0]
+    if not isinstance(shap_values, np.ndarray):
         shap_values = np.array(shap_values)
+
+    if shap_values.ndim == 3 and shap_values.shape[-1] == 1:
+        shap_values = shap_values.squeeze(-1)
 
     logger.info(
         "SHAP (ANN) done — mean |SHAP|: %s",
@@ -171,6 +175,153 @@ def mean_abs_shap(
     Returns:
         Dict {feature_name: mean_abs_shap}, sorted descending.
     """
-    mean_abs = np.abs(shap_values).mean(axis=0)
-    result = dict(zip(feature_names, mean_abs))
-    return dict(sorted(result.items(), key=lambda x: x[1], reverse=True))
+    vals = np.abs(shap_values).mean(axis=0)
+    sorted_pairs = sorted(zip(feature_names, vals), key=lambda x: x[1], reverse=True)
+    return dict(sorted_pairs)
+
+
+# ── Popular SHAP Visualizations ──────────────────────────────────────
+
+import matplotlib.pyplot as plt
+
+def _ensure_2d_shap(shap_values: np.ndarray) -> np.ndarray:
+    """Ensure SHAP values array is 2D (n_samples, n_features) for binary classification class 1."""
+    if isinstance(shap_values, list):
+        shap_values = shap_values[1] if len(shap_values) > 1 else shap_values[0]
+    if isinstance(shap_values, np.ndarray) and shap_values.ndim == 3:
+        # If shape is (N, M, 2), take class 1 (index 1)
+        if shap_values.shape[-1] == 2:
+            shap_values = shap_values[:, :, 1]
+        elif shap_values.shape[-1] == 1:
+            shap_values = shap_values.squeeze(-1)
+    return shap_values
+
+
+def plot_shap_beeswarm(
+    shap_values: np.ndarray,
+    X_val: np.ndarray,
+    feature_names: list[str],
+    save_path: Optional[str] = None,
+    max_display: int = 15,
+) -> plt.Figure:
+    """1. SHAP Beeswarm Plot (Dot summary plot showing directionality)."""
+    shap_values = _ensure_2d_shap(shap_values)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    shap_obj = shap.Explanation(
+        values=shap_values,
+        data=X_val,
+        feature_names=feature_names,
+    )
+    shap.plots.beeswarm(shap_obj, max_display=max_display, show=False)
+    plt.title("SHAP Beeswarm Plot — Feature Impact & Values", fontsize=14, pad=15)
+    plt.tight_layout()
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        logger.info("Saved SHAP Beeswarm plot to %s", save_path)
+    return fig
+
+
+def plot_shap_summary_bar(
+    shap_values: np.ndarray,
+    feature_names: list[str],
+    save_path: Optional[str] = None,
+    max_display: int = 15,
+) -> plt.Figure:
+    """2. SHAP Global Feature Importance Bar Chart."""
+    shap_values = _ensure_2d_shap(shap_values)
+    fig, ax = plt.subplots(figsize=(9, 5))
+    shap_obj = shap.Explanation(
+        values=shap_values,
+        feature_names=feature_names,
+    )
+    shap.plots.bar(shap_obj, max_display=max_display, show=False)
+    plt.title("SHAP Global Feature Importance", fontsize=14, pad=15)
+    plt.tight_layout()
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        logger.info("Saved SHAP Bar plot to %s", save_path)
+    return fig
+
+
+def plot_shap_waterfall(
+    shap_values: np.ndarray,
+    X_val: np.ndarray,
+    feature_names: list[str],
+    sample_idx: int = 0,
+    save_path: Optional[str] = None,
+    base_value: float = 0.0,
+) -> plt.Figure:
+    """3. SHAP Waterfall Plot for single transaction explanation."""
+    shap_values = _ensure_2d_shap(shap_values)
+    fig, ax = plt.subplots(figsize=(9, 6))
+    exp = shap.Explanation(
+        values=shap_values[sample_idx],
+        base_values=base_value,
+        data=X_val[sample_idx],
+        feature_names=feature_names,
+    )
+    shap.plots.waterfall(exp, max_display=12, show=False)
+    plt.title(f"SHAP Waterfall — Local Explanation (Sample #{sample_idx})", fontsize=13, pad=15)
+    plt.tight_layout()
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        logger.info("Saved SHAP Waterfall plot to %s", save_path)
+    return fig
+
+
+def plot_shap_dependence(
+    shap_values: np.ndarray,
+    X_val: np.ndarray,
+    feature_names: list[str],
+    feature_name: str = "V14",
+    save_path: Optional[str] = None,
+) -> plt.Figure:
+    """4. SHAP Dependence Scatter Plot."""
+    shap_values = _ensure_2d_shap(shap_values)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    feat_idx = feature_names.index(feature_name) if feature_name in feature_names else 0
+    shap.dependence_plot(
+        feat_idx,
+        shap_values,
+        X_val,
+        feature_names=feature_names,
+        ax=ax,
+        show=False,
+    )
+    plt.title(f"SHAP Dependence Plot — {feature_name}", fontsize=13, pad=15)
+    plt.tight_layout()
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        logger.info("Saved SHAP Dependence plot to %s", save_path)
+    return fig
+
+
+def plot_shap_decision(
+    shap_values: np.ndarray,
+    X_val: np.ndarray,
+    feature_names: list[str],
+    save_path: Optional[str] = None,
+    base_value: float = 0.0,
+    n_samples: int = 20,
+) -> plt.Figure:
+    """5. SHAP Decision Plot for multi-instance cumulative path analysis."""
+    shap_values = _ensure_2d_shap(shap_values)
+    fig, ax = plt.subplots(figsize=(9, 6))
+    shap.decision_plot(
+        base_value,
+        shap_values[:n_samples],
+        X_val[:n_samples],
+        feature_names=feature_names,
+        show=False,
+    )
+    plt.title(f"SHAP Decision Plot — Path Analysis (Top {n_samples} Samples)", fontsize=13, pad=15)
+    plt.tight_layout()
+    if save_path:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        logger.info("Saved SHAP Decision plot to %s", save_path)
+    return fig

@@ -39,5 +39,7 @@ jupyter
 # Hyperparameter tuning
 optuna
 
-# Data profiling
+# Data profiling & setuptools compatibility
 ydata-profiling>=4.6
+setuptools<70
+
